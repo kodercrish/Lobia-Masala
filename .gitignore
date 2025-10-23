@@ -1,0 +1,15 @@
+# Python Virtual Environment (usually named venv or .venv)
+venv/
+.venv/
+
+# Jupyter Notebook Checkpoints
+# These are temporary files created for autosaving
+.ipynb_checkpoints
+
+# Compiled Python files
+__pycache__/
+*.py[cod]
+
+# Log files and database files often left out
+*.log
+*.sqlite3

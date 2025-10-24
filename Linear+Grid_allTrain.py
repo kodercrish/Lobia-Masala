@@ -1,3 +1,6 @@
+##overallQuality<3
+##ParkingCap taken
+
 import pandas as pd
 import numpy as np
 from sklearn.preprocessing import StandardScaler, OneHotEncoder, PolynomialFeatures
@@ -57,7 +60,7 @@ if 'UsableArea' in X_train_raw.columns:
 
 # Remove properties with poor OverallQuality and high UsableArea (often errors)
 if 'OverallQuality' in X_train_raw.columns and 'UsableArea' in X_train_raw.columns:
-    outlier_mask &= ~((X_train_raw['OverallQuality'] < 5) & (X_train_raw['UsableArea'] > 3000))
+    outlier_mask &= ~((X_train_raw['OverallQuality'] < 3) & (X_train_raw['UsableArea'] > 3000))
 
 # Apply the mask to both features and target
 X_train = X_train_raw[outlier_mask].copy()
@@ -101,6 +104,33 @@ for df in [X_train, X_test]:
                      'BasementFacilitySF1', 'BasementFacilitySF2',
                      'Type1_Score', 'Type2_Score'], errors='ignore', inplace=True)
 
+
+# --- NEW SECTION: Feature Engineering for Pool ---
+print("Engineering Pool features...")
+# Define a quality map for PoolQuality. 
+# 'None' (or NaN) = 0, 'Fa' (Fair) = 1, 'Ex' (Excellent) = 4.
+# Added 'TA' (Typical) and 'Gd' (Good) as they are common.
+pool_quality_map = {
+    'None': 0,
+    'Fa': 1,
+    'Ex': 2,
+}
+
+for df in [X_train, X_test]:
+    # Fill NaN values first. 'PoolArea' NaNs mean 0 area.
+    df['SwimmingPoolArea'] = df['SwimmingPoolArea'].fillna(0)
+    df['PoolQuality'] = df['PoolQuality'].fillna('None')
+    
+    # Map quality strings to numeric scores
+    df['PoolQuality_Score'] = df['PoolQuality'].map(pool_quality_map).fillna(0)
+    
+    # Create the new feature by multiplying quality by area
+    df['TotalPoolScore'] = df['PoolQuality_Score'] * df['SwimmingPoolArea']
+    
+    # Now drop the original columns since they are combined
+    df.drop(columns=['PoolQuality', 'SwimmingPoolArea','PoolQuality_Score'],
+            errors='ignore', inplace=True)
+    
 # Merge Porch/Veranda Features
 print("Merging porch features...")
 for df in [X_train, X_test]:
@@ -109,20 +139,19 @@ for df in [X_train, X_test]:
         df['EnclosedVerandaArea'].fillna(0) + 
         df['SeasonalPorchArea'].fillna(0) + 
         df['ScreenPorchArea'].fillna(0)
-    
     )
-    df.drop(columns=['EnclosedVerandaArea', 'SeasonalPorchArea', 'ScreenPorchArea'], 
+    df.drop(columns=['OpenVerandaArea','EnclosedVerandaArea', 'SeasonalPorchArea', 'ScreenPorchArea'], 
             errors='ignore', inplace=True)
-
+# --- END OF NEW SECTION ---
 # Columns to drop (including multicollinearity removal)
 columns_to_drop = [
-    'Id', 'PoolQuality', 'BoundaryFence', 'ExtraFacility', 'ServiceLaneType', 
-    'BasementHalfBaths', 'LowQualityArea',
+    'Id',  'BoundaryFence', 'ExtraFacility', 'ServiceLaneType', 
+    'BasementHalfBaths', 'LowQualityArea','FacadeType',
     # Multicollinearity removal
-    'ParkingCapacity',  # Keep ParkingArea
-    'GroundFloorArea',  # Keep UsableArea
-    'TotalRooms',       # Keep FullBaths
-    'UpperFloorArea',   # Captured in UsableArea
+    'ParkingArea',  # Keep ParkingCapacity
+    # 'GroundFloorArea',  # Keep UsableArea
+    # 'TotalRooms',       # Keep FullBaths
+    # 'UpperFloorArea',   # Captured in UsableArea
 ]
 X_train = X_train.drop(columns=columns_to_drop, errors='ignore')
 X_test = X_test.drop(columns=columns_to_drop, errors='ignore')
@@ -138,6 +167,68 @@ y_train_log = np.log1p(y_train)
 def engineer_features(df):
     df = df.copy()
     
+# --- NEW ORDINAL PARKING MAPPING ---
+    # Define maps for ordinal parking features
+    quality_map_5pt = {
+        'Ex': 5, 'Gd': 4, 'TA': 3, 'Fa': 2, 'Po': 1, 'None': 0
+    }
+    parking_finish_map = {
+        'Fin': 3, 'RFn': 2, 'Unf': 1, 'None': 0
+    }
+    
+    # Overwrite categorical columns with their new numerical scores
+    
+    # Impute and map Quality
+    df['ParkingQuality'] = df['ParkingQuality'].fillna('None').map(quality_map_5pt).fillna(0)
+    
+    # Impute and map Condition
+    df['ParkingCondition'] = df['ParkingCondition'].fillna('None').map(quality_map_5pt).fillna(0)
+    
+    # Impute and map Finish
+    df['ParkingFinish'] = df['ParkingFinish'].fillna('None').map(parking_finish_map).fillna(0)
+    
+
+    # --- NEW PROPERTY FUNCTIONALITY MAPPING ---
+    # This feature represents deductions from 'Typical'
+    functionality_map = {
+        'Typ': 7,  # Typical
+        'Min1': 6, # Minor Deductions 1
+        'Min2': 5, # Minor Deductions 2
+        'Mod': 4,  # Moderate Deductions
+        'Maj1': 3, # Major Deductions 1
+        'Maj2': 2, # Major Deductions 2
+        'Sev': 1,  # Severely Damaged
+        'None': 0  # Assuming 'None' is worse than 'Sev' or not applicable
+    }
+    ##--- NEW EXTERIOR QUALITY/CONDITION MAPPING ---
+    df['ExteriorQuality'] = df['ExteriorQuality'].fillna('None').map(quality_map_5pt).fillna(0)
+    df['ExteriorCondition'] = df['ExteriorCondition'].fillna('None').map(quality_map_5pt).fillna(0)
+    
+    # # --- NEW BASEMENT FEATURES MAPPING ---
+    # # BasementHeight (uses 5-point map)
+    # df['BasementHeight'] = df['BasementHeight'].fillna('None').map(quality_map_5pt).fillna(0)
+    
+    # BasementCondition (uses 5-point map)
+    df['BasementCondition'] = df['BasementCondition'].fillna('None').map(quality_map_5pt).fillna(0)
+    
+    # BasementExposure (custom map)
+    exposure_map = {
+        'Gd': 4, 'Av': 3, 'Mn': 2, 'No': 1, 'None': 0
+    }
+    df['BasementExposure'] = df['BasementExposure'].fillna('None').map(exposure_map).fillna(0)
+    
+
+    # --- NEW KITCHEN/HEATING QUALITY MAPPING ---
+    df['KitchenQuality'] = df['KitchenQuality'].fillna('None').map(quality_map_5pt).fillna(0)
+    df['HeatingQuality'] = df['HeatingQuality'].fillna('None').map(quality_map_5pt).fillna(0)
+    # --- END NEW KITCHEN/HEATING SECTION ---
+
+    # Impute and map PropertyFunctionality.     
+    # Use fillna('Typ') if 'None' should be treated as 'Typical'
+    df['PropertyFunctionality'] = df['PropertyFunctionality'].fillna('None').map(functionality_map).fillna(0)
+    # --- END NEW FUNCTIONALITY SECTION ---
+    # By overwriting the columns, they will now be automatically
+    # treated as 'numerical' features by the rest of the script.
     # Time-based features
     df['HouseAge'] = df['YearSold'] - df['ConstructionYear']
     
@@ -200,14 +291,30 @@ preprocessor = ColumnTransformer(
     ],
     remainder='drop'
 )
+# --- 4.5. Train/Validation Split ---
+print("\n--- 4.5. Creating Train/Validation Split ---")
+from sklearn.model_selection import KFold, train_test_split
+# We split the FE-applied data (X_train_fe) and both log/original y_train
+# This gives us a new, smaller training set (fit) and a validation set (val)
+X_train_fit, X_val, y_train_fit_log, y_val_log, y_train_fit, y_val = train_test_split(
+    X_train_fe, 
+    y_train_log, 
+    y_train,         # Include the original y_train for scoring
+    test_size=0.15,   # 20% of the data will be for validation
+    random_state=42
+)
 
-# --- 5. Model Training: Linear Regression + Bayesian Optimization ---
+print(f"Training split shape: {X_train_fit.shape}")
+print(f"Validation split shape: {X_val.shape}")
+
+# --- 5. Model Training (on 100% Data) ---
 print("\n--- 5A. Baseline Linear Regression ---")
 
 from sklearn.linear_model import LinearRegression
 from sklearn.pipeline import Pipeline
 from sklearn.metrics import root_mean_squared_error, r2_score
-from sklearn.model_selection import KFold
+from sklearn.model_selection import KFold, GridSearchCV
+from sklearn.linear_model import Ridge
 
 # Baseline Linear Regression pipeline
 lr_pipeline = Pipeline(steps=[
@@ -215,100 +322,122 @@ lr_pipeline = Pipeline(steps=[
     ('regressor', LinearRegression())
 ])
 
-# Train baseline model
+# Train baseline model ON 100% TRAINING DATA
+print("Training baseline model on 100% training data...")
 lr_pipeline.fit(X_train_fe, y_train_log)
 
-# Evaluate baseline model
-y_train_log_pred = lr_pipeline.predict(X_train_fe)
-y_train_pred = np.expm1(y_train_log_pred)
-y_train_pred[y_train_pred < 0] = 0
+# --- Evaluate baseline model ON 100% TRAINING DATA ---
+print("Evaluating baseline on 100% training data...")
+y_train_log_pred_lr = lr_pipeline.predict(X_train_fe)
+y_train_pred_lr = np.expm1(y_train_log_pred_lr)
+y_train_pred_lr[y_train_pred_lr < 0] = 0
 
-rmse_train_lr = root_mean_squared_error(y_train, y_train_pred)
-r2_train_lr = r2_score(y_train, y_train_pred)
+rmse_train_lr = root_mean_squared_error(y_train, y_train_pred_lr)
+r2_train_lr = r2_score(y_train, y_train_pred_lr)
 
-print(f"Linear Regression RMSE (Train): {rmse_train_lr:,.2f}")
-print(f"Linear Regression R² (Train): {r2_train_lr:.4f}")
+print(f"Baseline Linear Regression RMSE (Train): {rmse_train_lr:,.2f}")
+print(f"Baseline Linear Regression R² (Train): {r2_train_lr:.4f}")
 
 
-# --- 5B. Bayesian Optimization for Linear Regression ---
-print("\n--- 5B. Bayesian Optimization for Linear Regression ---")
+# --- 5B. GridSearchCV for Linear Regression (on 100% Data) ---
+print("\n--- 5B. GridSearchCV for Linear Regression ---")
 
-from skopt import BayesSearchCV
-from skopt.space import Categorical, Real
-from sklearn.linear_model import Ridge
-
-# We'll wrap Linear Regression in Ridge to allow tuning small alpha (acts as regularization)
-# Because pure LinearRegression has almost no hyperparameters to tune
 ridge_pipeline = Pipeline(steps=[
     ('preprocessor', preprocessor),
     ('regressor', Ridge(random_state=42, max_iter=10000))
 ])
 
-# Define Bayesian search space
-search_space = {
-    'regressor__alpha': Real(1e-6, 1e1, prior='log-uniform'),  # small regularization
-    'regressor__fit_intercept': Categorical([True, False]),
-    'regressor__tol': Real(1e-5, 1e-2, prior='log-uniform')
+# Define GridSearchCV parameter grid
+param_grid = {
+    'regressor__alpha': [0.01, 0.1, 0.5, 1.0, 5.0, 10.0],
+    'regressor__fit_intercept': [True, False],
+    'regressor__tol': [1e-4, 1e-3]
 }
 
 cv_strategy = KFold(n_splits=5, shuffle=True, random_state=42)
 
-bayes_search = BayesSearchCV(
+grid_search = GridSearchCV(
     estimator=ridge_pipeline,
-    search_spaces=search_space,
-    n_iter=30,
+    param_grid=param_grid,
     cv=cv_strategy,
     scoring='neg_root_mean_squared_error',
     n_jobs=-1,
-    verbose=1,
-    random_state=42
+    verbose=1
 )
 
-bayes_search.fit(X_train_fe, y_train_log)
+# Train grid search ON 100% TRAINING DATA
+print("Running GridSearchCV on 100% training data...")
+grid_search.fit(X_train_fe, y_train_log)
 
-print("\nBest Bayesian Hyperparameters:")
-print(bayes_search.best_params_)
+print("\nBest GridSearchCV Hyperparameters:")
+print(grid_search.best_params_)
 
-# Evaluate optimized model
-best_model = bayes_search.best_estimator_
+# Get the best model found by the search
+best_gs_model = grid_search.best_estimator_
 
-y_train_log_pred_bayes = best_model.predict(X_train_fe)
-y_train_pred_bayes = np.expm1(y_train_log_pred_bayes)
-y_train_pred_bayes[y_train_pred_bayes < 0] = 0
+# --- Evaluate grid search model ON 100% TRAINING DATA ---
+print("Evaluating GridSearch model on 100% training data...")
+y_train_log_pred_gs = best_gs_model.predict(X_train_fe)
+y_train_pred_gs = np.expm1(y_train_log_pred_gs)
+y_train_pred_gs[y_train_pred_gs < 0] = 0
 
-rmse_train_bayes = root_mean_squared_error(y_train, y_train_pred_bayes)
-r2_train_bayes = r2_score(y_train, y_train_pred_bayes)
+rmse_train_gs = root_mean_squared_error(y_train, y_train_pred_gs)
+r2_train_gs = r2_score(y_train, y_train_pred_gs)
 
-print(f"\nBayesian Optimized Linear Regression RMSE (Train): {rmse_train_bayes:,.2f}")
-print(f"Bayesian Optimized Linear Regression R² (Train): {r2_train_bayes:.4f}")
+print(f"GridSearch Optimized RMSE (Train): {rmse_train_gs:,.2f}")
+print(f"GridSearch Optimized R² (Train): {r2_train_gs:.4f}")
 
 
-# --- Compare and Select Best Model ---
-print("\n--- Model Comparison ---")
-print(f"Baseline Linear Regression RMSE: {rmse_train_lr:,.2f} | R²: {r2_train_lr:.4f}")
-print(f"Bayesian Optimized Regression RMSE: {rmse_train_bayes:,.2f} | R²: {r2_train_bayes:.4f}")
+# --- 6. Final Model Selection (Based on Training Score) ---
+print("\n--- 6. Final Model Selection ---")
+print("--- Training Set Performance Comparison ---")
+print(f"Baseline Linear Regression RMSE (Train): {rmse_train_lr:,.2f} | R²: {r2_train_lr:.4f}")
+print(f"GridSearch Optimized Regression RMSE (Train): {rmse_train_gs:,.2f} | R²: {r2_train_gs:.4f}")
 
-if rmse_train_bayes < rmse_train_lr:
-    final_model = best_model
-    print("✅ Using Bayesian-optimized Linear Regression as final model.")
+# Decide which model pipeline to use based on TRAINING score
+if rmse_train_gs < rmse_train_lr:
+    print("\n✅ GridSearch model had better training score. Using as final model.")
+    final_model = best_gs_model
 else:
+    print("\n✅ Baseline Linear Regression had better training score. Using as final model.")
     final_model = lr_pipeline
-    print("✅ Using baseline Linear Regression as final model (performed better or equal).")
 
-# --- 6. Prediction and Submission File Creation ---
-print("\n--- 6. Prediction & Submission ---")
+
+# --- 7. Display Final Features ---
+print("\n--- 7. Final Features Considered by the Model ---")
+try:
+    # Access the 'preprocessor' step from the final fitted pipeline
+    preprocessor_step = final_model.named_steps['preprocessor']
+    
+    # Get the feature names out
+    final_feature_names = preprocessor_step.get_feature_names_out()
+    
+    print(f"Total number of features after preprocessing: {len(final_feature_names)}")
+    print("List of all features fed into the regressor:")
+    
+    # Print all feature names
+    for i, name in enumerate(final_feature_names):
+        print(f"  {i+1}: {name}")
+
+except Exception as e:
+    print(f"Could not retrieve feature names: {e}")
+# --- END OF NEW SECTION ---
+
+
+# --- 8. Prediction and Submission File Creation ---
+print("\n--- 8. Prediction & Submission ---")
 y_test_log_pred = final_model.predict(X_test_fe)
 
 # Reverse log-transformation
 y_test_pred = np.expm1(y_test_log_pred)
-y_test_pred[y_test_pred < 0] = 0 # Final check to ensure non-negative values
+y_test_pred[y_test_pred < 0] = 0 # Final check
 
 submission_df = pd.DataFrame({
     'Id': test_ids_cleaned,
     TARGET_COLUMN: y_test_pred
 })
 
-submission_filename = 'linear_submission_cleaned.csv' # Changed filename to reflect cleaning
+submission_filename = 'TestModels/linear_GridSearchCV_full_train.csv' # Changed filename
 submission_df.to_csv(submission_filename, index=False)
 
 print("Prediction process complete.")

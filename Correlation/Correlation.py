@@ -59,10 +59,8 @@ outlier_mask = (y_train_raw >= y_lower_bound) & (y_train_raw <= y_upper_bound)
 # 2. Predictor-based cleaning
 if 'UsableArea' in X_train_raw.columns:
     outlier_mask &= (X_train_raw['UsableArea'] < 4000)
-if 'GroundFloorArea' in X_train_raw.columns:
-    outlier_mask &= (X_train_raw['GroundFloorArea'] < 4000) # Keep or adjust if redundant
 if 'OverallQuality' in X_train_raw.columns and 'UsableArea' in X_train_raw.columns:
-    outlier_mask &= ~((X_train_raw['OverallQuality'] < 3) & (X_train_raw['UsableArea'] > 3000))
+    outlier_mask &= ~((X_train_raw['OverallQuality'] < 3) )
 
 # Apply the mask
 X_train = X_train_raw[outlier_mask].copy()

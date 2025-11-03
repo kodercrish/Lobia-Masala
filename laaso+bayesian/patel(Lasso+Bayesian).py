@@ -16,9 +16,9 @@ TARGET_COLUMN = 'HotelValue'
 print("--- 1. Data Loading ---")
 try:
     # Attempt to load from a common nested folder structure
-    df_train = pd.read_csv('Hotel-Property-Value-Dataset/train.csv')
-    df_test = pd.read_csv('Hotel-Property-Value-Dataset/test.csv')
-    print("Loaded data from 'Hotel-Property-Value-Dataset/' folder.")
+    df_train = pd.read_csv('../Hotel-Property-Value-Dataset/train.csv')
+    df_test = pd.read_csv('../Hotel-Property-Value-Dataset/test.csv')
+    print("Loaded data from '../Hotel-Property-Value-Dataset/' folder.")
 except FileNotFoundError:
     # Fallback to the current directory
     try:
